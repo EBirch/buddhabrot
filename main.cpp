@@ -36,10 +36,6 @@ int main(int argc, char **argv){
 			pointList.insert(pointList.end(), tempList.begin(), tempList.end());
 		}
 	}
-
-// auto temp=translateCoords(pointList, xRes, yRes);
-// std::cout<<temp.second<<std::endl;
-	// printSet(temp, depth);
 	printSet(translateCoords(pointList, xRes, yRes), depth);
 
 	MPI_Finalize();
@@ -59,23 +55,20 @@ std::vector<std::complex<double>> getPoints(std::complex<double> point, int maxI
 void printSet(std::pair<std::vector<std::vector<int>>, int> pointList, int depth){
 	std::fstream file("buddhabrot.ppm", std::ios::out);
 	file<<"P3\n"<<pointList.first.size()<<" "<<pointList.first[0].size()<<std::endl<<depth<<std::endl;
-	std::for_each(pointList.first.begin(), pointList.first.end(), 
-		[&](std::vector<int> pointRow){
-			std::for_each(pointRow.begin(), pointRow.end(), 
-				[&](int val){
-					val = (val * (depth - 1)) / pointList.second;
-					file<<std::min(val, depth - 1)<<" "<<std::min(val*val*4/255, depth - 1)<<" "<<std::min(val*val*6/255, depth - 1)<<" ";
-				});
+	for(auto pointRow : pointList.first){
+		for(auto val : pointRow){
+			val = (val * (depth - 1)) / pointList.second;
+			file<<std::min(val, depth - 1)<<" "<<std::min(val*val*4/255, depth - 1)<<" "<<std::min(val*val*6/255, depth - 1)<<" ";
 			file<<std::endl;
-		});
+		}
+	}
 }
 
 std::pair<std::vector<std::vector<int>>, int> translateCoords(std::vector<std::complex<double>> &pointList, int xRes, int yRes){
 	std::vector<std::vector<int>> newCoords(yRes, std::vector<int>(xRes, 0));
 	int maxHit = 0;
-	std::for_each(pointList.begin(), pointList.end(), 
-		[&](std::complex<double> point){
-			maxHit = std::max(maxHit, ++newCoords[(point.imag() + 2) * yRes / 4][(point.real() + 2) * xRes / 4]);
-		});
+	for(auto &point : pointList){
+		maxHit = std::max(maxHit, ++newCoords[(point.imag() + 2) * yRes / 4][(point.real() + 2) * xRes / 4]);
+	}
 	return std::make_pair(newCoords, maxHit);
 }
