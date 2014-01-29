@@ -18,9 +18,9 @@ int main(int argc, char **argv){
 	MPI_Comm_size(MPI_COMM_WORLD, &processors);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-	int xRes = 500;
-	int yRes = 500;
-	int maxPoints = 100000;
+	int xRes = 2000;
+	int yRes = 2000;
+	int maxPoints = 1000000000;
 	int maxIter = 1000;
 	int depth = 256;
 
@@ -93,12 +93,14 @@ std::vector<double> getPoints(std::complex<double> point, int maxIter){
 void printSet(std::pair<std::vector<std::vector<int>>, int> pointList, int depth){
 	std::fstream file("buddhabrot.ppm", std::ios::out);
 	file<<"P3\n"<<pointList.first.size()<<" "<<pointList.first[0].size()<<std::endl<<depth<<std::endl;
+	double scale = double(255 * 2.5) / pointList.second;
 	for(auto pointRow : pointList.first){
 		for(auto val : pointRow){
-			val = (val * (depth - 1)) / pointList.second;
-			file<<std::min(val, depth - 1)<<" "<<std::min(val*val*4/255, depth - 1)<<" "<<std::min(val*val*6/255, depth - 1)<<" ";
-			file<<std::endl;
+			// val = (val * (depth - 1)) / pointList.second;
+			// file<<std::min(val, depth - 1)<<" "<<std::min(val*val*4/255, depth - 1)<<" "<<std::min(val*val*6/255, depth - 1)<<" ";
+			file<<0<<" "<<(val * scale > 255 ? 255 : int(val * scale))<<" "<<(val * scale > 255 ? 255 : int(val * scale))<<" ";
 		}
+		file<<std::endl;
 	}
 }
 
