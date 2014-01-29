@@ -5,19 +5,18 @@
 #include <complex>
 #include <algorithm>
 #include <fstream>
+#include <future>
 
-std::vector<std::complex<double>> getPoints(std::complex<double> point, int maxIter);
+std::vector<double> getPoints(std::complex<double> point, int maxIter);
 void printSet(std::pair<std::vector<std::vector<int>>, int> pointList, int depth);
-std::pair<std::vector<std::vector<int>>, int> translateCoords(std::vector<std::complex<double>> &pointList, int xRes, int yRes);
+std::pair<std::vector<std::vector<int>>, int> translateCoords(std::vector<double> &pointList, int xRes, int yRes);
 
 int main(int argc, char **argv){
-	int numprocessors, rank, namelen;
-	char processor_name[MPI_MAX_PROCESSOR_NAME];
+	int processors, rank;
 
 	MPI_Init(&argc, &argv);
-	MPI_Comm_size(MPI_COMM_WORLD, &numprocessors);
+	MPI_Comm_size(MPI_COMM_WORLD, &processors);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-	MPI_Get_processor_name(processor_name, &namelen);
 
 	int xRes = 500;
 	int yRes = 500;
@@ -28,28 +27,67 @@ int main(int argc, char **argv){
 	std::mt19937 random(rank);
 	std::uniform_real_distribution<> realGen(-2.5, 1);
 	std::uniform_real_distribution<> complexGen(-1, 1);
-	std::vector<std::complex<double>> pointList;
+	std::vector<double> pointList;
+	std::vector<std::future<bool>> futures;
+	std::mutex m, l;
+	int count = 0;
 
-	for(int i = 0 ; i < maxPoints ; ++i){
-		auto tempList = getPoints(std::complex<double>(realGen(random), complexGen(random)), maxIter);
-		if(tempList.size()){
-			pointList.insert(pointList.end(), tempList.begin(), tempList.end());
+	for(int i = 0; i < 8; ++i){
+		futures.push_back(std::async(std::launch::async, 
+			[&]()->bool{
+				while(true){
+					{
+						std::lock_guard<std::mutex> guard(m);
+						++count;
+					}
+					if(count >= maxPoints){
+						return true;
+					}
+					auto tempList = getPoints(std::complex<double>(realGen(random), complexGen(random)), maxIter);
+					{
+						std::lock_guard<std::mutex> guard(l);
+						if(tempList.size()){
+							pointList.insert(pointList.end(), tempList.begin(), tempList.end());
+						}
+					}
+				}
+			}));
+	}
+
+	for(auto &fut : futures){
+		fut.get();
+	}	
+
+	if(rank == 0){
+		for(int i = 1; i < processors; ++i){
+			int size = 0;
+			MPI_Recv(&size, 1, MPI_INT, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			std::vector<double> temp(size);
+			MPI_Recv(&temp[0], size, MPI_DOUBLE, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			pointList.insert(pointList.end(), temp.begin(), temp.end());
 		}
 	}
+	else{
+		int size = pointList.size();
+		MPI_Send(&size, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+		MPI_Send(&pointList[0], size, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+	}
+
 	printSet(translateCoords(pointList, xRes, yRes), depth);
 
 	MPI_Finalize();
 }
 
-std::vector<std::complex<double>> getPoints(std::complex<double> point, int maxIter){
+std::vector<double> getPoints(std::complex<double> point, int maxIter){
 	std::complex<double> temp(point);
-	std::vector<std::complex<double>> pointsList;
+	std::vector<double> pointsList;
 	int iter = 0;
 	while(temp.real() * temp.real() + temp.imag() * temp.imag() < 4 && iter++ < maxIter){
-		pointsList.push_back(temp);
+		pointsList.push_back(temp.real());
+		pointsList.push_back(temp.imag());
 		temp = temp * temp + point;
 	}
-	return (iter == maxIter) ? std::vector<std::complex<double>>() : pointsList;
+	return (iter == maxIter) ? std::vector<double>() : pointsList;
 }
 
 void printSet(std::pair<std::vector<std::vector<int>>, int> pointList, int depth){
@@ -64,11 +102,11 @@ void printSet(std::pair<std::vector<std::vector<int>>, int> pointList, int depth
 	}
 }
 
-std::pair<std::vector<std::vector<int>>, int> translateCoords(std::vector<std::complex<double>> &pointList, int xRes, int yRes){
+std::pair<std::vector<std::vector<int>>, int> translateCoords(std::vector<double> &pointList, int xRes, int yRes){
 	std::vector<std::vector<int>> newCoords(yRes, std::vector<int>(xRes, 0));
 	int maxHit = 0;
-	for(auto &point : pointList){
-		maxHit = std::max(maxHit, ++newCoords[(point.imag() + 2) * yRes / 4][(point.real() + 2) * xRes / 4]);
+	for(int i = 0; i < pointList.size() - 1; i += 2){
+		maxHit = std::max(maxHit, ++newCoords[(pointList[i + 1] + 2) * yRes / 4][(pointList[i] + 2) * xRes / 4]);
 	}
 	return std::make_pair(newCoords, maxHit);
 }
