@@ -8,8 +8,8 @@
 #include <future>
 
 std::vector<double> getPoints(std::complex<double> point, int maxIter);
-void printSet(std::pair<std::vector<std::vector<int>>, int> pointList, int depth, std::string path);
-std::pair<std::vector<std::vector<int>>, int> translateCoords(std::vector<double> &pointList, int xRes, int yRes);
+void printSet(std::pair<std::vector<std::vector<int>>, int> lists, int depth, std::string path);
+std::pair<std::vector<std::vector<int>>, int> translateCoords(std::vector<std::vector<double>> &pointList, int xRes, int yRes, float xMin, float xMax, float yMin, float yMax);
 
 int main(int argc, char **argv){
 	int processors, rank;
@@ -18,16 +18,17 @@ int main(int argc, char **argv){
 	MPI_Comm_size(MPI_COMM_WORLD, &processors);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-	int xRes = 500;
-	int yRes = 500;
-	int maxPoints = 100000;
-	int maxIter = 1000;
+	int xRes = 2000;
+	int yRes = 2000;
+	int maxPoints = 50000;
+	int maxIter = 10000;
 	int depth = 256;
 
 	std::mt19937 random(rank);
 	std::uniform_real_distribution<> realGen(-2.5, 1);
 	std::uniform_real_distribution<> complexGen(-1, 1);
 	std::vector<double> pointList;
+	std::vector<std::vector<double>> allLists;
 	std::vector<std::future<bool>> futures;
 	std::mutex m, l;
 	int count = 0;
@@ -61,6 +62,7 @@ int main(int argc, char **argv){
 	std::cout<<"All threads done on process "<<rank<<std::endl;
 
 	if(rank == 0){
+		allLists.push_back(pointList);
 		for(int i = 1; i < processors; ++i){
 			std::cout<<"Getting stuff from "<<i<<std::endl;
 			int size = 0;
@@ -68,7 +70,8 @@ int main(int argc, char **argv){
 			std::cout<<"Got size "<<size<<" from "<<i<<std::endl;
 			std::vector<double> temp(size);
 			MPI_Recv(&temp[0], size, MPI_DOUBLE, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-			pointList.insert(pointList.end(), temp.begin(), temp.end());
+			// pointList.insert(pointList.end(), temp.begin(), temp.end());
+			allLists.push_back(temp);
 			std::cout<<"Got points from "<<i<<std::endl;
 		}
 	}
@@ -84,7 +87,12 @@ int main(int argc, char **argv){
 	std::cout<<"Done MPI send/recv\n";
 	
 	if(rank == 0){
-		printSet(translateCoords(pointList, xRes, yRes), depth, "/home/A01514050/buddhabrot/buddhabrot.ppm");
+		printSet(translateCoords(allLists, xRes, yRes, -2, 2, -2, 2), depth, "buddhabrot.ppm");
+		std::cout<<"Done image 1\n";
+		printSet(translateCoords(allLists, xRes, yRes, -1.5, 0, -1, 1), depth, "buddhabrotzoom.ppm");
+		std::cout<<"Done image 2\n";
+		printSet(translateCoords(allLists, xRes, yRes, -1, 0.5, -0.5, 0.5), depth, "buddhabrotzoom2.ppm");
+		std::cout<<"Done image 3\n";
 	}
 
 	MPI_Finalize();
@@ -105,20 +113,25 @@ std::vector<double> getPoints(std::complex<double> point, int maxIter){
 void printSet(std::pair<std::vector<std::vector<int>>, int> pointList, int depth, std::string path){
 	std::fstream file(path.data(), std::ios::out);
 	file<<"P3\n"<<pointList.first.size()<<" "<<pointList.first[0].size()<<std::endl<<depth<<std::endl;
-	double scale = double(255 * 2.5) / pointList.second;
 	for(auto pointRow : pointList.first){
 		for(auto val : pointRow){
-			file<<0<<" "<<(val * scale > 255 ? 255 : int(val * scale))<<" "<<(val * scale > 255 ? 255 : int(val * scale))<<" ";
+			val = (val > 255) ? 255 : val;
+			file<<val<<" "<<val<<" "<<val<<" ";
 		}
 		file<<std::endl;
 	}
 }
 
-std::pair<std::vector<std::vector<int>>, int> translateCoords(std::vector<double> &pointList, int xRes, int yRes){
+std::pair<std::vector<std::vector<int>>, int> translateCoords(std::vector<std::vector<double>> &lists, int xRes, int yRes, float xMin, float xMax, float yMin, float yMax){
 	std::vector<std::vector<int>> newCoords(yRes, std::vector<int>(xRes, 0));
 	int maxHit = 0;
-	for(int i = 0; i < pointList.size() - 1; i += 2){
-		maxHit = std::max(maxHit, ++newCoords[(pointList[i + 1] + 2) * yRes / 4][(pointList[i] + 2) * xRes / 4]);
+	for(auto &pointList : lists){
+		for(int i = 0; i < pointList.size() - 1; i += 2){
+			if(pointList[i] > xMax || pointList[i] < xMin || pointList[i + 1] > yMax || pointList[i + 1] < yMin){
+				continue;
+			}
+			maxHit = std::max(maxHit, ++newCoords[(pointList[i + 1] - yMin) * yRes / (yMax - yMin)][(pointList[i] - xMin) * xRes / (xMax - xMin)]);
+		}
 	}
 	return std::make_pair(newCoords, maxHit);
 }
